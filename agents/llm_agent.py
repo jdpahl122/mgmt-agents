@@ -1,9 +1,10 @@
 from langchain.llms import Ollama
+import os
 
 def llm_agent(issue_details):
     """Analyzes long-open Jira issues using LangChain's Ollama integration."""
     
-    llm = Ollama(model="deepseek-r1:14b")
+    llm = Ollama(model=os.getenv("OLLAMA_MODEL"))
 
     prompt = f"""
     The following Jira issue has been open for {issue_details['days_open']} days:
