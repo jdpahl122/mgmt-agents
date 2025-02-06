@@ -1,33 +1,20 @@
 import os
-from dotenv import load_dotenv
 from tools.jira_tools import get_current_sprint_issues
-from tools.issue_analytics import analyze_issue_duration
+from dotenv import load_dotenv
 
 # Load environment variables
 load_dotenv()
+JIRA_BOARD_ID = os.getenv("JIRA_BOARD_ID")
 
-class JiraAgent:
-    def __init__(self):
-        self.board_id = os.getenv("JIRA_BOARD_ID")
+def jira_agent():
+    """Fetch active sprint issues from Jira."""
+    if not JIRA_BOARD_ID:
+        raise ValueError("❌ ERROR: Missing JIRA_BOARD_ID in environment variables")
 
-    def fetch_sprint_issues(self):
-        """Retrieve Jira sprint issues."""
-        issues = get_current_sprint_issues(self.board_id)
-        return issues
-
-    def analyze_sprint(self):
-        """Analyze issue duration per assignee."""
-        sprint_issues = self.fetch_sprint_issues()
-        if isinstance(sprint_issues, str):  # Handle errors
-            print(f"❌ Error: {sprint_issues}")
-            return
-
-        analysis = analyze_issue_duration(sprint_issues)
-        print("\n📊 Issue Aging Per Assignee:")
-        for assignee, data in analysis.items():
-            print(f"- {assignee}: Avg {data['avg_days_open']:.1f} days open ({data['issue_count']} issues)")
-
-# Example usage
-if __name__ == "__main__":
-    agent = JiraAgent()
-    agent.analyze_sprint()
+    print(f"📥 Fetching Jira sprint issues for Board ID {JIRA_BOARD_ID}...")
+    issues = get_current_sprint_issues(JIRA_BOARD_ID)
+    
+    if not issues:
+        print("⚠️ No issues found in the sprint.")
+    
+    return issues

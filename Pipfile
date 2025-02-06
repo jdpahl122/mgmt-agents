@@ -6,6 +6,9 @@ name = "pypi"
 [packages]
 requests = "*"
 python-dotenv = "*"
+langchain = "*"
+ollama = "*"
+langchain-experimental = "*"
 
 [dev-packages]
 
