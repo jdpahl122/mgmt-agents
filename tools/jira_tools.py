@@ -10,11 +10,6 @@ JIRA_BASE_URL = os.getenv("JIRA_BASE_URL")
 JIRA_EMAIL = os.getenv("JIRA_EMAIL")
 JIRA_API_TOKEN = os.getenv("JIRA_API_TOKEN")
 
-print(f"🔹 JIRA_BASE_URL: {JIRA_BASE_URL}")
-print(f"🔹 JIRA_EMAIL: {JIRA_EMAIL}")
-print(f"🔹 JIRA_API_TOKEN: {JIRA_API_TOKEN}")
-
-# Encode Basic Auth credentials
 auth_string = f"{JIRA_EMAIL}:{JIRA_API_TOKEN}"
 encoded_auth = base64.b64encode(auth_string.encode()).decode()
 
@@ -24,50 +19,79 @@ headers = {
     "Content-Type": "application/json"
 }
 
-def get_active_sprint(board_id):
-    """Fetch the active sprint from the given Jira board, handling pagination."""
-    start_at = 0  # Start with the first page
-    max_results = 50  # Jira default pagination limit
-    
-    while True:  # Loop through all pages
-        sprint_url = f"{JIRA_BASE_URL}/rest/agile/1.0/board/{board_id}/sprint?startAt={start_at}&maxResults={max_results}"
-        response = requests.get(sprint_url, headers=headers)
+### **🔹 Get All Epics Under an Initiative**
+def get_epics_for_initiative(initiative_id):
+    """Fetch all Epics under a given Initiative (e.g., DENG-3584)."""
+    jql_query = f"parent={initiative_id} AND issuetype=Epic"
+    url = f"{JIRA_BASE_URL}/rest/api/3/search?jql={jql_query}"
 
-        if response.status_code == 200:
-            sprints = response.json().get("values", [])
-            
-            print(f"\n🔍 DEBUG: Retrieved {len(sprints)} Sprints (Page Start: {start_at})")  # Debug output
-            
-            for sprint in sprints:
-                print(f"🟢 Sprint: {sprint['name']} - State: {sprint['state']}")  # Print sprint details
-                if sprint["state"] == "active":
-                    print(f"✅ Found Active Sprint: {sprint['name']} (ID: {sprint['id']})")
-                    return sprint["id"]
-            
-            # If there are no more results, exit the loop
-            if len(sprints) < max_results:
-                break
+    response = requests.get(url, headers=headers)
 
-            start_at += max_results  # Move to the next page
+    if response.status_code != 200:
+        print(f"❌ ERROR {response.status_code}: {response.text}")
+        return []
 
-        else:
-            print(f"❌ ERROR {response.status_code}: {response.text}")  # Debug error details
-            break
+    epics = response.json().get("issues", [])
+    return [epic["key"] for epic in epics]
 
-    print("⚠️ No Active Sprint Found")
-    return None
+### **🔹 Get Issues from a Specific Sprint that Belong to Initiative Epics**
+def get_sprint_issues_for_initiative(sprint_id, initiative_id):
+    """Fetches Stories, Tasks, and Bugs in the sprint tied to Epics under the Initiative."""
+    epics = get_epics_for_initiative(initiative_id)
 
-def get_current_sprint_issues(board_id):
-    """Fetch issues from the active sprint."""
-    sprint_id = get_active_sprint(board_id)
-    if not sprint_id:
-        return "No active sprint found."
+    if not epics:
+        print(f"⚠️ No epics found for Initiative {initiative_id}.")
+        return []
 
-    issues_url = f"{JIRA_BASE_URL}/rest/agile/1.0/sprint/{sprint_id}/issue"
-    response = requests.get(issues_url, headers=headers)
+    epic_keys = ",".join(epics)
+    jql_query = f"sprint={sprint_id} AND issuetype in (Story, Task, Bug) AND parent in ({epic_keys})"
+    url = f"{JIRA_BASE_URL}/rest/api/3/search?jql={jql_query}"
 
-    if response.status_code == 200:
-        return response.json()["issues"]
-    
-    print(f"❌ ERROR {response.status_code}: {response.text}")  # Debugging output
-    return "Failed to fetch issues."
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        print(f"❌ ERROR {response.status_code}: {response.text}")
+        return []
+
+    issues = response.json().get("issues", [])
+    issue_list = []
+
+    for issue in issues:
+        issue_data = {
+            "id": issue["id"],
+            "key": issue["key"],
+            "summary": issue["fields"].get("summary", ""),
+            "description": issue["fields"].get("description", ""),
+            "status": issue["fields"]["status"]["name"],
+            "assignee": issue["fields"]["assignee"]["displayName"] if issue["fields"].get("assignee") else "Unassigned",
+            "created": issue["fields"].get("created", ""),
+            "resolution_date": issue["fields"].get("resolutiondate", ""),
+            "status_history": get_issue_status_transitions(issue["id"]),
+        }
+        issue_list.append(issue_data)
+
+    return issue_list
+
+### **🔹 Get Issue Status Transitions (Track Movement in Workflow)**
+def get_issue_status_transitions(issue_id):
+    """Fetches the status history of a Jira issue to track lifecycle transitions."""
+    url = f"{JIRA_BASE_URL}/rest/api/3/issue/{issue_id}?expand=changelog"
+    response = requests.get(url, headers=headers)
+
+    if response.status_code != 200:
+        print(f"❌ ERROR {response.status_code}: {response.text}")
+        return []
+
+    changelog_entries = response.json().get("changelog", {}).get("histories", [])
+    status_transitions = []
+
+    for entry in changelog_entries:
+        for item in entry.get("items", []):
+            if item.get("field") == "status":
+                status_transitions.append({
+                    "from": item.get("fromString"),
+                    "to": item.get("toString"),
+                    "timestamp": entry.get("created")
+                })
+
+    return status_transitions
